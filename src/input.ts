@@ -6,7 +6,8 @@ import { tileAt } from './sim/types';
 import type { Dir } from './sim/types';
 import { RIDE_TYPES } from './sim/ridedefs';
 import {
-  startTrack, demoLoopPieces, canBuildDemoLoop, trackCost, trackStats,
+  COASTER_TYPES, startTrack, buildDesign, canBuildDesign, getDesign,
+  trackCost, trackStats, designCost,
 } from './sim/coaster';
 import type { TrackBuilder } from './sim/coaster';
 
@@ -36,8 +37,9 @@ export function attachInput(g: GameCtx, canvas: HTMLCanvasElement): void {
     } else if (g.tool.startsWith('ride:')) {
       const def = RIDE_TYPES[g.tool.slice(5)];
       g.canAct = !!def && canPlaceRide(s, def.id, h.x, h.y) && s.cash >= def.cost;
-    } else if (g.tool === 'demoloop') {
-      g.canAct = canBuildDemoLoop(s, h.x, h.y) && s.cash >= 1080;
+    } else if (g.tool.startsWith('design:')) {
+      const d = getDesign(g.tool.slice(7));
+      g.canAct = !!d && canBuildDesign(s, d, h.x, h.y) && s.cash >= designCost(d);
     } else if (g.tool === 'coaster' && g.placingStation) {
       g.canAct = !!t && t.kind === 'grass' && t.rideId === null;
     } else {
@@ -53,20 +55,24 @@ export function attachInput(g: GameCtx, canvas: HTMLCanvasElement): void {
       removePath(s, h.x, h.y);
     } else if (g.tool.startsWith('ride:')) {
       placeRide(s, g.tool.slice(5), h.x, h.y);
-    } else if (g.tool === 'demoloop') {
-      const b = demoLoopPieces(s, h.x, h.y);
+    } else if (g.tool.startsWith('design:')) {
+      const d = getDesign(g.tool.slice(7));
+      if (!d) return;
+      const b = buildDesign(s, d, h.x, h.y);
       if (typeof b === 'string') {
         setTicker(b, 'bad');
         return;
       }
-      const cost = trackCost(b.pieces);
-      const ride = createCoasterRide(s, b.pieces, cost, trackStats(b.pieces));
+      const cost = trackCost(b.pieces, d.typeId);
+      const stats = trackStats(b.pieces, d.typeId);
+      const cars = COASTER_TYPES[d.typeId].defaultCars;
+      const ride = createCoasterRide(s, d.typeId, b.pieces, cost, stats, d.name, cars);
       if (ride) {
         setTool(g, 'select');
         showRidePanel(g, ride.id);
       }
     } else if (g.tool === 'coaster' && g.placingStation) {
-      const b = startTrack(s, h.x, h.y, g.stationDir);
+      const b = startTrack(s, g.coasterTypeId, h.x, h.y, g.stationDir);
       if (typeof b === 'string') {
         setTicker(b, 'bad');
         return;
@@ -135,7 +141,6 @@ export function attachInput(g: GameCtx, canvas: HTMLCanvasElement): void {
     ev.preventDefault();
     const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
     const newZoom = Math.min(2.5, Math.max(0.4, g.cam.zoom * factor));
-    // Zoom around the cursor.
     const wx = (ev.clientX - g.cam.x) / g.cam.zoom;
     const wy = (ev.clientY - g.cam.y) / g.cam.zoom;
     g.cam.zoom = newZoom;

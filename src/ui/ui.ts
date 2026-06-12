@@ -1,25 +1,37 @@
-import type { Dir, ParkState } from '../sim/types';
+import type { Dir, ParkState, PieceOp } from '../sim/types';
 import { clamp, dateString, monthIndex, MONTH_NAMES, START_MONTH } from '../sim/types';
 import { RIDE_TYPES } from '../sim/ridedefs';
 import { demolishRide } from '../sim/grid';
 import { hireStaff, fireStaff } from '../sim/staff';
 import type { TrackBuilder } from '../sim/coaster';
-import { addPiece, undoPiece, isClosed, trackCost, trackStats } from '../sim/coaster';
+import {
+  COASTER_DESIGNS, COASTER_TYPES, addPiece, undoPiece, isClosed, trackCost,
+  trackStats, designCost, designStats, op,
+} from '../sim/coaster';
 import type { Camera } from '../render/renderer';
 
 // Shared mutable game context. main.ts creates it; ui.ts and input.ts mutate it.
+export interface BuilderSelection {
+  turn: -1 | 0 | 1;
+  slope: -2 | -1 | 0 | 1 | 2;
+  bank: -1 | 0 | 1;
+  chain: boolean;
+}
+
 export interface GameCtx {
   s: ParkState;
   cam: Camera;
-  tool: string;
+  tool: string; // select | path | delpath | ride:<id> | coaster | design:<id>
   hover: { x: number; y: number } | null;
   canAct: boolean;
   builder: TrackBuilder | null;
+  builderSel: BuilderSelection;
+  coasterTypeId: string; // type chosen for a custom build
   placingStation: boolean;
   stationDir: Dir;
   selectedRide: number | null;
   speed: number;
-  panel: string; // which side panel is showing: '' | 'ride' | 'coaster' | 'finance' | 'staff' | 'goal'
+  panel: string;
   finishCoaster: () => void;
   cancelCoaster: () => void;
   newGame: () => void;
@@ -45,6 +57,17 @@ export function setTool(g: GameCtx, tool: string): void {
   });
 }
 
+function button(parent: HTMLElement, label: string, title: string, onClick: () => void, opts: { tool?: string; cls?: string } = {}): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.innerHTML = label;
+  b.title = title;
+  if (opts.tool) b.dataset.tool = opts.tool;
+  if (opts.cls) b.className = opts.cls;
+  b.addEventListener('click', onClick);
+  parent.appendChild(b);
+  return b;
+}
+
 export function buildToolbar(g: GameCtx): void {
   const bar = $('#toolbar');
   bar.innerHTML = '';
@@ -54,45 +77,26 @@ export function buildToolbar(g: GameCtx): void {
     bar.appendChild(d);
     return d;
   };
-  const btn = (parent: HTMLElement, label: string, title: string, onClick: () => void, tool?: string): HTMLButtonElement => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.title = title;
-    if (tool) b.dataset.tool = tool;
-    b.addEventListener('click', onClick);
-    parent.appendChild(b);
-    return b;
-  };
 
   const g1 = group();
-  btn(g1, '🔍 Select', 'Inspect rides and guests', () => setTool(g, 'select'), 'select');
-  btn(g1, '🛤 Path $10', 'Build paths (click or drag)', () => setTool(g, 'path'), 'path');
-  btn(g1, '⛏ Remove', 'Remove paths', () => setTool(g, 'delpath'), 'delpath');
+  button(g1, '🔍 Select', 'Inspect rides', () => setTool(g, 'select'), { tool: 'select' });
+  button(g1, '🛤 Path $10', 'Build paths (click or drag)', () => setTool(g, 'path'), { tool: 'path' });
+  button(g1, '⛏ Remove', 'Remove paths', () => setTool(g, 'delpath'), { tool: 'delpath' });
 
   const g2 = group();
-  for (const def of Object.values(RIDE_TYPES)) {
-    if (def.kind === 'coaster') continue;
-    btn(g2, `${def.name} $${def.cost}`, `Place ${def.name} (${def.w}x${def.h})`, () => setTool(g, `ride:${def.id}`), `ride:${def.id}`);
-  }
+  button(g2, '🎠 Gentle', 'Gentle rides', () => showBuildMenu(g, 'gentle'));
+  button(g2, '🚀 Thrill', 'Thrill rides', () => showBuildMenu(g, 'thrill'));
+  button(g2, '🎢 Coasters', 'Custom coasters & pre-built designs', () => showCoasterMenu(g));
+  button(g2, '🍔 Stalls', 'Food, drink & facilities', () => showBuildMenu(g, 'stall'));
 
   const g3 = group();
-  btn(g3, '🎢 Coaster', 'Build a custom coaster piece by piece', () => setTool(g, 'coaster'), 'coaster');
-  btn(g3, '🎢 Quick Loop $1080', 'Place a ready-made coaster loop (8x5 tiles)', () => setTool(g, 'demoloop'), 'demoloop');
+  button(g3, '🧹 Handyman $50', 'Hire a handyman ($50/month)', () => { hireStaff(g.s, 'handyman'); refreshPanel(g); });
+  button(g3, '🔧 Mechanic $50', 'Hire a mechanic ($80/month)', () => { hireStaff(g.s, 'mechanic'); refreshPanel(g); });
+  button(g3, '👷 Staff', 'Manage staff', () => showStaffPanel(g));
 
   const g4 = group();
-  btn(g4, '🧹 Handyman $50', 'Hire a handyman ($50/month wage)', () => {
-    hireStaff(g.s, 'handyman');
-    refreshPanel(g);
-  });
-  btn(g4, '🔧 Mechanic $50', 'Hire a mechanic ($80/month wage)', () => {
-    hireStaff(g.s, 'mechanic');
-    refreshPanel(g);
-  });
-  btn(g4, '👷 Staff', 'Manage staff', () => showStaffPanel(g));
-
-  const g5 = group();
-  btn(g5, '💰 Finances', 'Income, costs and the entry fee', () => showFinancePanel(g));
-  btn(g5, '🎯 Goal', 'Scenario objective', () => showGoalPanel(g));
+  button(g4, '💰 Finances', 'Income, costs, entry fee', () => showFinancePanel(g));
+  button(g4, '🎯 Goal', 'Scenario objective', () => showGoalPanel(g));
 }
 
 export function hidePanel(g: GameCtx): void {
@@ -129,6 +133,203 @@ function row(parent: HTMLElement, label: string, value: string, cls = ''): void 
   parent.appendChild(d);
 }
 
+function header(parent: HTMLElement, text: string): void {
+  const h = document.createElement('h3');
+  h.textContent = text;
+  parent.appendChild(h);
+}
+
+// ----------------------------------------------------------- build menus --
+
+export function showBuildMenu(g: GameCtx, category: 'gentle' | 'thrill' | 'stall'): void {
+  const p = panelEl(g, 'menu');
+  const titles = { gentle: '🎠 Gentle Rides', thrill: '🚀 Thrill Rides', stall: '🍔 Stalls & Facilities' };
+  header(p, titles[category]);
+  for (const def of Object.values(RIDE_TYPES)) {
+    if (def.category !== category) continue;
+    const d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = `<span>${def.name} <span class="hint">${def.w}×${def.h}</span></span>`;
+    const b = document.createElement('button');
+    b.textContent = `$${def.cost}`;
+    b.dataset.build = def.id;
+    b.addEventListener('click', () => setTool(g, `ride:${def.id}`));
+    d.appendChild(b);
+    p.appendChild(d);
+  }
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'Pick one, then click a grass spot next to a path.';
+  p.appendChild(hint);
+}
+
+export function showCoasterMenu(g: GameCtx): void {
+  const p = panelEl(g, 'menu');
+  header(p, '🎢 Build a Coaster');
+
+  const sub1 = document.createElement('div');
+  sub1.className = 'hint';
+  sub1.innerHTML = '<b>Custom track</b> — pick a type, place a station, build piece by piece:';
+  p.appendChild(sub1);
+  for (const cfg of Object.values(COASTER_TYPES)) {
+    const d = document.createElement('div');
+    d.className = 'row';
+    const caps = [
+      cfg.allowsInversions ? 'loops' : null,
+      cfg.allowsSteep ? 'steep' : null,
+    ].filter(Boolean).join(', ') || 'gentle';
+    d.innerHTML = `<span>${cfg.name} <span class="hint">${caps}</span></span>`;
+    const b = document.createElement('button');
+    b.textContent = 'Build';
+    b.dataset.build = cfg.id;
+    b.addEventListener('click', () => {
+      g.coasterTypeId = cfg.id;
+      setTool(g, 'coaster');
+    });
+    d.appendChild(b);
+    p.appendChild(d);
+  }
+
+  const sub2 = document.createElement('div');
+  sub2.className = 'hint';
+  sub2.style.marginTop = '10px';
+  sub2.innerHTML = '<b>Pre-built designs</b> — proven layouts, ready to drop in:';
+  p.appendChild(sub2);
+  for (const d of COASTER_DESIGNS) {
+    const stats = designStats(d);
+    const cost = designCost(d);
+    const el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML = `<span>${d.name} <span class="hint">${COASTER_TYPES[d.typeId].name}<br>E ${stats.excitement.toFixed(1)} · I ${stats.intensity.toFixed(1)} · N ${stats.nausea.toFixed(1)}</span></span>`;
+    const b = document.createElement('button');
+    b.textContent = `$${cost}`;
+    b.title = d.desc;
+    b.dataset.build = d.id;
+    b.addEventListener('click', () => setTool(g, `design:${d.id}`));
+    el.appendChild(b);
+    p.appendChild(el);
+  }
+}
+
+// --------------------------------------------------------- coaster builder --
+
+export function showCoasterPanel(g: GameCtx): void {
+  const p = panelEl(g, 'coaster');
+  const cfg = COASTER_TYPES[g.coasterTypeId];
+  header(p, `🎢 ${cfg.name}`);
+
+  if (g.placingStation || !g.builder) {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.innerHTML = 'Click a grass tile to place the <b>station</b>.<br>Press <b>R</b> to rotate the start direction.<br>Steer the track back onto the station to close the circuit.';
+    p.appendChild(hint);
+    row(p, 'Start direction', ['East', 'South', 'West', 'North'][g.stationDir]);
+    button(p, 'Cancel', 'Cancel', () => { g.cancelCoaster(); setTool(g, 'select'); }, { cls: 'danger' });
+    return;
+  }
+
+  const b = g.builder;
+  const closed = isClosed(b);
+  const cost = trackCost(b.pieces, b.typeId);
+  row(p, 'Pieces', String(b.pieces.length));
+  row(p, 'Cost', `$${cost}`, g.s.cash >= cost ? '' : 'status-broken');
+  row(p, 'Height', String(b.head.z));
+  row(p, 'Circuit', closed ? 'CLOSED ✓' : 'open', closed ? 'status-open' : 'status-closed');
+  if (closed) {
+    const stats = trackStats(b.pieces, b.typeId);
+    if (stats.valid) {
+      row(p, 'Excitement', stats.excitement.toFixed(2), 'status-open');
+      row(p, 'Intensity', stats.intensity.toFixed(2));
+      row(p, 'Nausea', stats.nausea.toFixed(2));
+      row(p, 'Max speed', `${Math.round(stats.maxSpeed * 160)} km/h`);
+      row(p, 'Inversions', String(stats.inversions));
+      row(p, 'Airtime', String(stats.airtime));
+    } else {
+      const warn = document.createElement('div');
+      warn.className = 'hint status-broken';
+      warn.textContent = `⚠ ${stats.reason}`;
+      p.appendChild(warn);
+    }
+  }
+
+  const sel = g.builderSel;
+  const mkGroup = (title: string, options: Array<[string, () => boolean, () => void]>): void => {
+    const lbl = document.createElement('div');
+    lbl.className = 'hint';
+    lbl.style.marginTop = '6px';
+    lbl.textContent = title;
+    p.appendChild(lbl);
+    const rowEl = document.createElement('div');
+    rowEl.className = 'btnrow';
+    for (const [text, isActive, onPick] of options) {
+      const btn = document.createElement('button');
+      btn.textContent = text;
+      if (isActive()) btn.classList.add('active');
+      btn.addEventListener('click', () => { onPick(); refreshPanel(g); });
+      rowEl.appendChild(btn);
+    }
+    p.appendChild(rowEl);
+  };
+
+  mkGroup('Direction', [
+    ['↰ Left', () => sel.turn === -1, () => { sel.turn = -1; }],
+    ['⬆ Straight', () => sel.turn === 0, () => { sel.turn = 0; }],
+    ['↱ Right', () => sel.turn === 1, () => { sel.turn = 1; }],
+  ]);
+  const slopes: Array<[string, -2 | -1 | 0 | 1 | 2]> = cfg.allowsSteep
+    ? [['⤓', -2], ['↘', -1], ['—', 0], ['↗', 1], ['⤒', 2]]
+    : [['↘', -1], ['—', 0], ['↗', 1]];
+  mkGroup('Slope', slopes.map(([t, v]) => [t, () => sel.slope === v, () => { sel.slope = v; }]));
+  mkGroup('Banking', [
+    ['⟲ Left', () => sel.bank === -1, () => { sel.bank = -1; }],
+    ['— None', () => sel.bank === 0, () => { sel.bank = 0; }],
+    ['⟳ Right', () => sel.bank === 1, () => { sel.bank = 1; }],
+  ]);
+  mkGroup('Chain lift', [
+    ['⛓ On', () => sel.chain, () => { sel.chain = true; }],
+    ['Off', () => !sel.chain, () => { sel.chain = false; }],
+  ]);
+
+  const addRow = document.createElement('div');
+  addRow.className = 'btnrow';
+  const tryAdd = (o: PieceOp): void => {
+    const err = addPiece(g.s, b, o);
+    if (err) setTicker(err, 'bad');
+    refreshPanel(g);
+  };
+  button(addRow, '➕ Add piece', 'Add the selected piece', () => tryAdd(op({ turn: sel.turn, slope: sel.slope, bank: sel.bank, chain: sel.chain })));
+  button(addRow, '↩ Undo', 'Remove the last piece', () => { undoPiece(b); refreshPanel(g); });
+  p.appendChild(addRow);
+
+  if (cfg.allowsInversions) {
+    const specials = document.createElement('div');
+    specials.className = 'btnrow';
+    button(specials, '➰ Loop', 'Vertical loop (straight, level)', () => tryAdd(op({ special: 'loop' })));
+    button(specials, '🌀 Cork L', 'Corkscrew left', () => tryAdd(op({ special: 'corkscrewL' })));
+    button(specials, '🌀 Cork R', 'Corkscrew right', () => tryAdd(op({ special: 'corkscrewR' })));
+    button(specials, '🟨 Brakes', 'Brake run', () => tryAdd(op({ special: 'brakes' })));
+    p.appendChild(specials);
+  } else {
+    const specials = document.createElement('div');
+    specials.className = 'btnrow';
+    button(specials, '🟨 Brakes', 'Brake run', () => tryAdd(op({ special: 'brakes' })));
+    p.appendChild(specials);
+  }
+
+  const doneRow = document.createElement('div');
+  doneRow.className = 'btnrow';
+  const stats = closed ? trackStats(b.pieces, b.typeId) : null;
+  const finish = button(doneRow, `✓ Finish ($${cost})`, 'Open the coaster', () => g.finishCoaster());
+  if (!closed || !stats?.valid) {
+    finish.disabled = true;
+    finish.style.opacity = '0.5';
+  }
+  button(doneRow, '✗ Cancel', 'Abandon construction', () => { g.cancelCoaster(); setTool(g, 'select'); }, { cls: 'danger' });
+  p.appendChild(doneRow);
+}
+
+// ------------------------------------------------------------ info panels --
+
 export function showRidePanel(g: GameCtx, rideId: number | null): void {
   if (rideId === null) { hidePanel(g); return; }
   const ride = g.s.rides[rideId];
@@ -136,9 +337,7 @@ export function showRidePanel(g: GameCtx, rideId: number | null): void {
   g.selectedRide = rideId;
   const p = panelEl(g, 'ride');
   const def = RIDE_TYPES[ride.typeId];
-  const h = document.createElement('h3');
-  h.textContent = ride.name;
-  p.appendChild(h);
+  header(p, ride.name);
   const status = ride.broken ? '<span class="status-broken">BROKEN DOWN</span>'
     : ride.open ? '<span class="status-open">Open</span>' : '<span class="status-closed">Closed</span>';
   const sd = document.createElement('div');
@@ -149,9 +348,9 @@ export function showRidePanel(g: GameCtx, rideId: number | null): void {
   if (def.kind === 'stall') {
     row(p, 'Customers', String(ride.totalRiders));
   } else {
-    row(p, 'Excitement', ride.excitement.toFixed(1));
-    row(p, 'Intensity', ride.intensity.toFixed(1));
-    row(p, 'Nausea', ride.nausea.toFixed(1));
+    row(p, 'Excitement', ride.excitement.toFixed(2));
+    row(p, 'Intensity', ride.intensity.toFixed(2));
+    row(p, 'Nausea', ride.nausea.toFixed(2));
     row(p, 'In queue', String(ride.queue.length));
     row(p, 'Riding now', String(ride.onBoard.length));
     row(p, 'Total riders', String(ride.totalRiders));
@@ -178,6 +377,35 @@ export function showRidePanel(g: GameCtx, rideId: number | null): void {
   pr.appendChild(ctl);
   p.appendChild(pr);
 
+  // Train length for coasters.
+  if (ride.track) {
+    const cfg = COASTER_TYPES[ride.typeId];
+    const tr = document.createElement('div');
+    tr.className = 'row';
+    tr.innerHTML = '<span>Train cars</span>';
+    const ctl2 = document.createElement('span');
+    const minus2 = document.createElement('button');
+    minus2.textContent = '−';
+    const lbl2 = document.createElement('span');
+    lbl2.textContent = ` ${ride.cars} `;
+    lbl2.style.fontWeight = '600';
+    const plus2 = document.createElement('button');
+    plus2.textContent = '+';
+    minus2.addEventListener('click', () => {
+      ride.cars = clamp(ride.cars - 1, 2, cfg?.maxCars ?? 8);
+      ride.capacity = ride.cars * 2;
+      refreshPanel(g);
+    });
+    plus2.addEventListener('click', () => {
+      ride.cars = clamp(ride.cars + 1, 2, cfg?.maxCars ?? 8);
+      ride.capacity = ride.cars * 2;
+      refreshPanel(g);
+    });
+    ctl2.append(minus2, lbl2, plus2);
+    tr.appendChild(ctl2);
+    p.appendChild(tr);
+  }
+
   const btns = document.createElement('div');
   btns.className = 'btnrow';
   const toggle = document.createElement('button');
@@ -194,89 +422,9 @@ export function showRidePanel(g: GameCtx, rideId: number | null): void {
   p.appendChild(btns);
 }
 
-export function showCoasterPanel(g: GameCtx): void {
-  const p = panelEl(g, 'coaster');
-  const h = document.createElement('h3');
-  h.textContent = '🎢 Coaster Builder';
-  p.appendChild(h);
-
-  if (g.placingStation || !g.builder) {
-    const hint = document.createElement('div');
-    hint.className = 'hint';
-    hint.innerHTML = 'Click a grass tile to place the <b>station</b>.<br>Press <b>R</b> to rotate the start direction.<br>The track must loop back to the station.';
-    p.appendChild(hint);
-    row(p, 'Start direction', ['East', 'South', 'West', 'North'][g.stationDir]);
-    const cancel = document.createElement('button');
-    cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', () => { g.cancelCoaster(); setTool(g, 'select'); });
-    p.appendChild(cancel);
-    return;
-  }
-
-  const b = g.builder;
-  const closed = isClosed(b);
-  const cost = trackCost(b.pieces);
-  row(p, 'Pieces', String(b.pieces.length));
-  row(p, 'Cost', `$${cost}`, g.s.cash >= cost ? '' : 'status-broken');
-  row(p, 'Height', String(b.head.z));
-  row(p, 'Circuit', closed ? 'CLOSED ✓' : 'open', closed ? 'status-open' : 'status-closed');
-  if (closed) {
-    const stats = trackStats(b.pieces);
-    row(p, 'Excitement', stats.excitement.toFixed(1));
-    row(p, 'Intensity', stats.intensity.toFixed(1));
-  }
-
-  const mk = (label: string, kind: string): HTMLButtonElement => {
-    const btn = document.createElement('button');
-    btn.textContent = label;
-    btn.addEventListener('click', () => {
-      if (kind === 'undo') {
-        undoPiece(b);
-      } else {
-        const err = addPiece(g.s, b, kind as never);
-        if (err) setTicker(err, 'bad');
-      }
-      refreshPanel(g);
-    });
-    return btn;
-  };
-  const btns = document.createElement('div');
-  btns.className = 'btnrow';
-  btns.append(
-    mk('⬆ Straight', 'straight'),
-    mk('↰ Left', 'left'),
-    mk('↱ Right', 'right'),
-    mk('⤴ Up', 'up'),
-    mk('⤵ Down', 'down'),
-    mk('↩ Undo', 'undo'),
-  );
-  p.appendChild(btns);
-
-  const btns2 = document.createElement('div');
-  btns2.className = 'btnrow';
-  const finish = document.createElement('button');
-  finish.textContent = `✓ Finish ($${cost})`;
-  finish.disabled = !closed;
-  if (!closed) finish.style.opacity = '0.5';
-  finish.addEventListener('click', () => g.finishCoaster());
-  const cancel = document.createElement('button');
-  cancel.className = 'danger';
-  cancel.textContent = '✗ Cancel';
-  cancel.addEventListener('click', () => { g.cancelCoaster(); setTool(g, 'select'); });
-  btns2.append(finish, cancel);
-  p.appendChild(btns2);
-
-  const hint = document.createElement('div');
-  hint.className = 'hint';
-  hint.textContent = 'Close the loop by steering the yellow arrow back onto the station tile at ground level, facing the same way.';
-  p.appendChild(hint);
-}
-
 export function showFinancePanel(g: GameCtx): void {
   const p = panelEl(g, 'finance');
-  const h = document.createElement('h3');
-  h.textContent = '💰 Finances';
-  p.appendChild(h);
+  header(p, '💰 Finances');
   const f = g.s.finances;
   row(p, 'Cash', `$${g.s.cash}`, g.s.cash < 0 ? 'status-broken' : 'status-open');
   row(p, 'Entry fee income', `$${f.entryIncome}`);
@@ -310,9 +458,7 @@ export function showFinancePanel(g: GameCtx): void {
 
 export function showStaffPanel(g: GameCtx): void {
   const p = panelEl(g, 'staff');
-  const h = document.createElement('h3');
-  h.textContent = '👷 Staff';
-  p.appendChild(h);
+  header(p, '👷 Staff');
   const staff = Object.values(g.s.staff);
   if (staff.length === 0) {
     const hint = document.createElement('div');
@@ -336,9 +482,7 @@ export function showStaffPanel(g: GameCtx): void {
 
 export function showGoalPanel(g: GameCtx): void {
   const p = panelEl(g, 'goal');
-  const h = document.createElement('h3');
-  h.textContent = '🎯 Scenario';
-  p.appendChild(h);
+  header(p, '🎯 Scenario');
   const sc = g.s.scenario;
   const deadlineMonth = MONTH_NAMES[(START_MONTH + sc.deadlineMonth) % 12];
   const deadlineYear = 1 + Math.floor((START_MONTH + sc.deadlineMonth) / 12);
@@ -398,7 +542,7 @@ export function showGameOverOverlay(g: GameCtx): void {
   const body = result === 'won'
     ? `You reached ${g.s.guestCount} guests with a park rating of ${g.s.rating}. A magnificent park!`
     : result === 'bankrupt'
-      ? 'The park ran out of money. The bank has seized the bumper cars.'
+      ? 'The park ran out of money. The bank has seized the dodgems.'
       : `The deadline passed with ${g.s.guestCount} guests and a rating of ${g.s.rating}. The investors are not amused.`;
   o.innerHTML = `<div class="panel"><h2>${title}</h2><p>${body}</p><div class="btnrow"></div></div>`;
   const btns = o.querySelector('.btnrow')!;

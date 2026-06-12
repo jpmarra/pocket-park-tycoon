@@ -17,20 +17,27 @@ npm run dev        # dev server at http://localhost:5173
 
 ## How to play
 
-You start with **$3,000** and a scenario goal: **50 guests in the park and a
-600 park rating before January, Year 2**. Bankruptcy (cash below $0) ends the
-game immediately.
+You start with **$20,000** and a long-game scenario goal: **200 guests in the
+park and a 700 park rating before January, Year 3**. Bankruptcy (cash below
+$0) ends the game immediately.
 
 - **Build paths** ($10/tile) from the orange park entrance so guests can get
   around. Click or drag with the Path tool.
 - **Place rides** next to paths — guests queue at the first path tile touching
-  a ride's footprint. Carousel, Bumper Cars, Ferris Wheel, Drop Tower, plus
-  Burger and Drink stalls.
-- **Build a coaster**: the 🎢 Coaster tool places a station (press **R** to
-  rotate), then add pieces — straight, turns, up, down — and steer the yellow
-  arrow back onto the station to close the circuit. Excitement, intensity and
-  lap time are computed from your layout. Or drop a ready-made **Quick Loop**
-  for $1,080.
+  a ride's footprint. 12 flat rides from the RCT classics (Merry-Go-Round,
+  Ferris Wheel, Haunted House, Spiral Slide, Observation Tower, Space Rings,
+  Dodgems, Launched Freefall, Swinging Ship, Twist, Motion Simulator,
+  Go-Karts) plus 7 stalls & facilities (burgers, fries, ice cream, cotton
+  candy, drinks, balloons, toilets).
+- **Build a coaster** with the RCT-style piece editor: pick a track type
+  (Wooden / Steel Mini / Steel Twister — each with its own physics and
+  capabilities), place a station (press **R** to rotate), then combine
+  direction + slope (incl. steep) + banking + chain lift per piece, with
+  vertical loops, corkscrews and brake runs on the twister. Stats come from a
+  physics pass measuring speed and G-forces: airtime adds excitement, flat
+  corners at speed add lateral G and nausea, loops need enough drop height or
+  the train valleys. Or drop one of five pre-built designs: Little Comet,
+  Woodchip, Cyclone, Mouse Trap, Twister.
 - **Guests** have needs: hungry guests want burger stalls, thirsty ones drink
   stalls, nauseous ones a break. Unhappy or exhausted guests leave. They drop
   litter and occasionally vomit — hire **handymen** to sweep.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeTestPark } from './helpers';
 import { serialize, deserialize } from '../src/sim/save';
-import { demoLoopPieces, trackCost, trackStats } from '../src/sim/coaster';
+import { buildDesign, getDesign, trackCost, trackStats } from '../src/sim/coaster';
 import type { TrackBuilder } from '../src/sim/coaster';
 import { createCoasterRide } from '../src/sim/grid';
 import { spawnGuest } from '../src/sim/guest';
@@ -11,8 +11,9 @@ import { step } from '../src/sim/park';
 describe('save/load', () => {
   it('round-trips a busy park exactly', () => {
     const { s } = makeTestPark(99);
-    const b = demoLoopPieces(s, 5, 5) as TrackBuilder;
-    createCoasterRide(s, b.pieces, trackCost(b.pieces), trackStats(b.pieces));
+    const d = getDesign('little-comet')!;
+    const b = buildDesign(s, d, 5, 5) as TrackBuilder;
+    createCoasterRide(s, d.typeId, b.pieces, trackCost(b.pieces, d.typeId), trackStats(b.pieces, d.typeId), d.name, 4);
     hireStaff(s, 'handyman');
     spawnGuest(s);
     spawnGuest(s);

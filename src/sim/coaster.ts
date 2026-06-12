@@ -309,6 +309,8 @@ const up = op({ slope: 1 });
 const down = op({ slope: -1 });
 const steepDown = op({ slope: -2 });
 const str = STRAIGHT;
+const turnR = op({ turn: 1 });
+const turnL = op({ turn: -1 });
 const turnRb = op({ turn: 1, bank: 1 });
 const loop = op({ special: 'loop' });
 const ckL = op({ special: 'corkscrewL' });
@@ -357,17 +359,46 @@ export const COASTER_DESIGNS: CoasterDesign[] = [
     id: 'cyclone',
     name: 'Cyclone',
     typeId: 'coaster-wooden',
-    desc: 'A twisting woodie with a steep first drop and banked corners.',
-    bounds: [-1, 0, 8, 5],
+    desc: 'An L-shaped woodie that drops off its lift turn and hugs the terrain.',
+    bounds: [-1, 0, 8, 6],
+    // L-shaped: east lift, descending turn, dog-leg east again, then the long
+    // return run. Closure: see the displacement accounting in the tests.
     ops: [
-      chainUp, chainUp, chainUp, chainUp, steepDown, steepDown, str, // east (8 with station)
+      chainUp, chainUp, chainUp, // east (station + 3 = a=4), to z3
+      op({ turn: 1, slope: -1 }), // drop through the first corner
+      steepDown, str, // south 2, down to z0
+      op({ turn: -1, bank: -1 }), // banked left into the dog-leg
+      up, down, str, // east 3 (hill)
       turnRb,
-      up, down, str, str, // south 4
+      str, str, // south 2
       turnRb,
-      str, up, down, str, up, down, str, str, // west 8
+      str, up, down, str, up, down, brakes, str, // west 8
       turnRb,
-      str, str, str, brakes, // north 4
+      str, str, str, str, str, // north 5
       turnRb,
+    ],
+  },
+  {
+    id: 'mouse-trap',
+    name: 'Mouse Trap',
+    typeId: 'coaster-mini',
+    desc: 'Wild-mouse switchbacks — tight flat turns and sudden direction changes.',
+    bounds: [-1, 0, 5, 5],
+    ops: [
+      chainUp, down, str, str, // east a=5 (station + these 4)
+      turnR, turnR, // switchback 1: snap south then west
+      str, str, str, str, // west b=4
+      turnL, turnL, // snap back east
+      str, str, str, str, // east c=4
+      turnR, turnR,
+      str, str, str, str, // west d=4
+      turnL, turnL,
+      str, str, str, str, // east e=4
+      turnR, turnR,
+      str, str, str, brakes, str, // west f=5
+      turnR,
+      str, str, str, str, // north 4
+      turnR,
     ],
   },
   {

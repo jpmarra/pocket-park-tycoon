@@ -1,7 +1,9 @@
 import './style.css';
-import { buildPath, createPark, placeRide } from './sim/grid';
+import { buildPath, createPark, placeRide, createCoasterRide } from './sim/grid';
 import { hireStaff } from './sim/staff';
-import { demoLoopPieces } from './sim/coaster';
+import {
+  COASTER_TYPES, buildDesign, getDesign, isClosed, trackCost, trackStats,
+} from './sim/coaster';
 import type { StaffRole } from './sim/types';
 import { tick, step } from './sim/park';
 import { serialize, deserialize } from './sim/save';
@@ -9,12 +11,10 @@ import { render, tileToWorld } from './render/renderer';
 import type { Camera, ViewState } from './render/renderer';
 import type { GameCtx } from './ui/ui';
 import {
-  buildToolbar, setTool, updateHUD, setTicker, showGameOverOverlay, hidePanel, refreshPanel,
+  buildToolbar, setTool, updateHUD, setTicker, showGameOverOverlay, hidePanel,
+  refreshPanel, showRidePanel,
 } from './ui/ui';
 import { attachInput } from './input';
-import { createCoasterRide } from './sim/grid';
-import { isClosed, trackCost, trackStats } from './sim/coaster';
-import { showRidePanel } from './ui/ui';
 
 const SAVE_KEY = 'pocket-park-tycoon-save';
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
@@ -23,7 +23,6 @@ const ctx2d = canvas.getContext('2d')!;
 function initialCamera(): Camera {
   const cw = window.innerWidth;
   const chh = window.innerHeight;
-  // Center the grid; world center of a 36x36 grid is at tile (18,18).
   const c = tileToWorld(18, 18);
   return { x: cw / 2 - c.x, y: chh / 2 - c.y, zoom: 1 };
 }
@@ -35,6 +34,8 @@ const g: GameCtx = {
   hover: null,
   canAct: false,
   builder: null,
+  builderSel: { turn: 0, slope: 0, bank: 0, chain: false },
+  coasterTypeId: 'coaster-twister',
   placingStation: false,
   stationDir: 0,
   selectedRide: null,
@@ -42,8 +43,15 @@ const g: GameCtx = {
   panel: '',
   finishCoaster: () => {
     if (!g.builder || !isClosed(g.builder)) return;
-    const cost = trackCost(g.builder.pieces);
-    const ride = createCoasterRide(g.s, g.builder.pieces, cost, trackStats(g.builder.pieces));
+    const b = g.builder;
+    const stats = trackStats(b.pieces, b.typeId);
+    if (!stats.valid) {
+      setTicker(stats.reason, 'bad');
+      return;
+    }
+    const cost = trackCost(b.pieces, b.typeId);
+    const cars = COASTER_TYPES[b.typeId].defaultCars;
+    const ride = createCoasterRide(g.s, b.typeId, b.pieces, cost, stats, undefined, cars);
     if (ride) {
       g.builder = null;
       g.placingStation = false;
@@ -167,7 +175,7 @@ declare global {
       api: {
         buildPath: (x: number, y: number) => boolean;
         placeRide: (typeId: string, x: number, y: number) => boolean;
-        buildDemoLoop: (x: number, y: number) => boolean;
+        buildDesign: (designId: string, x: number, y: number) => boolean;
         hireStaff: (role: StaffRole) => boolean;
       };
     };
@@ -185,10 +193,17 @@ window.game = {
   api: {
     buildPath: (x, y) => buildPath(g.s, x, y),
     placeRide: (typeId, x, y) => placeRide(g.s, typeId, x, y) !== null,
-    buildDemoLoop: (x, y) => {
-      const b = demoLoopPieces(g.s, x, y);
+    buildDesign: (designId, x, y) => {
+      const d = getDesign(designId);
+      if (!d) return false;
+      const b = buildDesign(g.s, d, x, y);
       if (typeof b === 'string') return false;
-      return createCoasterRide(g.s, b.pieces, trackCost(b.pieces), trackStats(b.pieces)) !== null;
+      const stats = trackStats(b.pieces, d.typeId);
+      if (!stats.valid) return false;
+      return createCoasterRide(
+        g.s, d.typeId, b.pieces, trackCost(b.pieces, d.typeId), stats, d.name,
+        COASTER_TYPES[d.typeId].defaultCars,
+      ) !== null;
     },
     hireStaff: (role) => hireStaff(g.s, role) !== null,
   },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createPark, buildPath, placeRide, createCoasterRide, entranceTile } from '../src/sim/grid';
-import { demoLoopPieces, trackCost, trackStats } from '../src/sim/coaster';
+import { buildDesign, getDesign, trackCost, trackStats } from '../src/sim/coaster';
 import type { TrackBuilder } from '../src/sim/coaster';
 import { hireStaff } from '../src/sim/staff';
 import { step } from '../src/sim/park';
@@ -29,11 +29,12 @@ describe('scenario integration', () => {
     expect(placeRide(s, 'droptower', e.x + 2, e.y - 13)).not.toBeNull();
     expect(placeRide(s, 'foodstall', e.x - 1, e.y - 9)).not.toBeNull();
     expect(placeRide(s, 'drinkstall', e.x + 1, e.y - 9)).not.toBeNull();
-    const b = demoLoopPieces(s, e.x - 16, e.y - 12) as TrackBuilder;
+    const d = getDesign('little-comet')!;
+    const b = buildDesign(s, d, e.x - 16, e.y - 12) as TrackBuilder;
     expect(typeof b).not.toBe('string');
     // Connect the coaster footprint to the street.
     for (let x = e.x - 16 + 7; x <= e.x - 7; x++) buildPath(s, x, e.y - 10);
-    expect(createCoasterRide(s, b.pieces, trackCost(b.pieces), trackStats(b.pieces))).not.toBeNull();
+    expect(createCoasterRide(s, d.typeId, b.pieces, trackCost(b.pieces, d.typeId), trackStats(b.pieces, d.typeId), d.name, 4)).not.toBeNull();
 
     hireStaff(s, 'handyman');
     hireStaff(s, 'handyman');

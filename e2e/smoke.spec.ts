@@ -16,7 +16,7 @@ test('self-play: build, simulate, guests ride, money flows, no errors', async ({
   await page.waitForFunction(() => window.game !== undefined, undefined, { polling: 100 });
 
   const startCash = await page.evaluate(() => window.game.ctx.s.cash);
-  expect(startCash).toBe(3000);
+  expect(startCash).toBe(20000);
 
   // --- Lay two path tiles east of the starter path via real canvas clicks ---
   await page.locator('button[data-tool="path"]').click();
@@ -27,8 +27,9 @@ test('self-play: build, simulate, guests ride, money flows, no errors', async ({
   const afterPaths = await page.evaluate(() => window.game.ctx.s.cash);
   expect(afterPaths).toBe(startCash - 20);
 
-  // --- Place a carousel next to the starter path ---
-  await page.locator('button[data-tool="ride:carousel"]').click();
+  // --- Place a carousel next to the starter path (via the Gentle menu) ---
+  await page.locator('#toolbar button', { hasText: 'Gentle' }).click();
+  await page.locator('#sidepanel button[data-build="carousel"]').click();
   const ridePt = await page.evaluate(() => window.game.tileToScreen(16, 30));
   await page.mouse.click(ridePt.x, ridePt.y);
   const rideInfo = await page.evaluate(() => {
@@ -90,7 +91,7 @@ test('self-play: build, simulate, guests ride, money flows, no errors', async ({
   await page.locator('button[data-tool="select"]').click();
   await page.mouse.click(ridePt.x, ridePt.y);
   await expect(page.locator('#sidepanel')).toBeVisible();
-  await expect(page.locator('#sidepanel h3')).toContainText('Carousel');
+  await expect(page.locator('#sidepanel h3')).toContainText('Merry-Go-Round');
 
   // --- Screenshot the running game (HUD + built ride visible) ---
   await page.screenshot({ path: 'test-results/game-screenshot.png' });
@@ -98,7 +99,7 @@ test('self-play: build, simulate, guests ride, money flows, no errors', async ({
   expect(errors, `Console errors: ${errors.join('\n')}`).toHaveLength(0);
 });
 
-test('coaster quick-loop builds and runs trains', async ({ page }) => {
+test('pre-built coaster design builds and runs trains', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
@@ -108,18 +109,21 @@ test('coaster quick-loop builds and runs trains', async ({ page }) => {
   await page.goto('/');
   await page.waitForFunction(() => window.game !== undefined, undefined, { polling: 100 });
 
-  // Place the quick loop west of the starter path, station row adjacent.
-  await page.locator('button[data-tool="demoloop"]').click();
+  // Pick the Little Comet design from the Coasters menu and place it west of
+  // the starter path, station row adjacent.
+  await page.locator('#toolbar button', { hasText: 'Coasters' }).click();
+  await page.locator('#sidepanel button[data-build="little-comet"]').click();
   const pt = await page.evaluate(() => window.game.tileToScreen(11, 28));
   await page.mouse.click(pt.x, pt.y);
 
   const built = await page.evaluate(() => {
     const rides = Object.values(window.game.ctx.s.rides);
-    const c = rides.find((r) => r.typeId === 'coaster');
-    return c ? { id: c.id, pieces: c.track?.length ?? 0, excitement: c.excitement } : null;
+    const c = rides.find((r) => r.track !== undefined);
+    return c ? { id: c.id, pieces: c.track?.length ?? 0, excitement: c.excitement, name: c.name } : null;
   });
   expect(built).not.toBeNull();
   expect(built!.pieces).toBe(22);
+  expect(built!.name).toContain('Little Comet');
   expect(built!.excitement).toBeGreaterThan(1);
 
   // The loop's footprint (x 10..17) sits right beside the starter path

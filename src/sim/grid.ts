@@ -1,6 +1,6 @@
 import {
-  GRID_H, GRID_W, PATH_COST, STARTING_CASH, TICKS_PER_MONTH,
-  addMessage, inBounds, tileAt,
+  GRID_H, GRID_W, MONTH_NAMES, PATH_COST, START_MONTH, STARTING_CASH,
+  TICKS_PER_MONTH, addMessage, inBounds, tileAt,
 } from './types';
 import type { ParkState, Ride, Tile, TrackPiece } from './types';
 import { RIDE_TYPES } from './ridedefs';
@@ -30,9 +30,9 @@ export function createPark(seed: number): ParkState {
     messages: [],
     scenario: {
       name: 'Greenfield Gardens',
-      goalGuests: 50,
-      goalRating: 600,
-      deadlineMonth: 10, // end of December, Year 1 (start is March)
+      goalGuests: 200,
+      goalRating: 700,
+      deadlineMonth: 22, // ~2 in-game years (start is March, Year 1)
     },
     gameOver: 'none',
     sandbox: false,
@@ -46,7 +46,9 @@ export function createPark(seed: number): ParkState {
   const ey = GRID_H - 1;
   s.grid[ey * GRID_W + ex].kind = 'entrance';
   for (let y = ey - 1; y >= ey - 8; y--) s.grid[y * GRID_W + ex].kind = 'path';
-  addMessage(s, `Welcome to ${s.scenario.name}! Goal: ${s.scenario.goalGuests} guests and a ${s.scenario.goalRating} park rating before January, Year 2.`);
+  const dm = MONTH_NAMES[(START_MONTH + s.scenario.deadlineMonth) % 12];
+  const dy = 1 + Math.floor((START_MONTH + s.scenario.deadlineMonth) / 12);
+  addMessage(s, `Welcome to ${s.scenario.name}! Goal: ${s.scenario.goalGuests} guests and a ${s.scenario.goalRating} park rating before ${dm}, Year ${dy}.`);
   return s;
 }
 

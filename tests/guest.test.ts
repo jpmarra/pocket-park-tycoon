@@ -64,6 +64,39 @@ describe('guest needs and lifecycle', () => {
     expect(ride.revenue).toBeGreaterThan(0);
   });
 
+  it('a guest buys a balloon and carries it', () => {
+    const { s } = makeTestPark();
+    const e = { x: Math.floor(s.gridW / 2), y: s.gridH - 1 };
+    const stall = placeRide(s, 'balloonstall', e.x + 1, e.y - 3)!;
+    const g = spawnGuest(s)!;
+    const cashBefore = g.cash;
+    // Walk the guest straight to the stall's queue tile.
+    g.tx = e.x; g.ty = e.y - 3; g.x = g.tx; g.y = g.ty;
+    g.path = [{ x: g.tx, y: g.ty }];
+    g.pathIdx = 0;
+    g.activity = 'toStall';
+    g.targetRide = stall.id;
+    step(s, 5);
+    expect(g.balloon).not.toBeNull();
+    expect(g.cash).toBe(cashBefore - stall.price);
+    expect(stall.totalRiders).toBe(1);
+  });
+
+  it('toilets relieve nausea', () => {
+    const { s } = makeTestPark();
+    const e = { x: Math.floor(s.gridW / 2), y: s.gridH - 1 };
+    const loo = placeRide(s, 'toilets', e.x + 1, e.y - 4)!;
+    const g = spawnGuest(s)!;
+    g.nausea = 80;
+    g.tx = e.x; g.ty = e.y - 4; g.x = g.tx; g.y = g.ty;
+    g.path = [{ x: g.tx, y: g.ty }];
+    g.pathIdx = 0;
+    g.activity = 'toStall';
+    g.targetRide = loo.id;
+    step(s, 5);
+    expect(g.nausea).toBeLessThan(50);
+  });
+
   it('guests give up queuing when patience runs out', () => {
     const { s, ride } = makeTestPark();
     ride.open = true;

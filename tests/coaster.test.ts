@@ -150,6 +150,19 @@ describe('pre-built designs', () => {
     }
   });
 
+  it('design bounds exactly cover the laid track tiles', () => {
+    for (const d of COASTER_DESIGNS) {
+      const pieces = designPieces(d);
+      expect(typeof pieces).not.toBe('string');
+      const ps = pieces as Exclude<typeof pieces, string>;
+      const minX = Math.min(...ps.map((p) => p.x));
+      const minY = Math.min(...ps.map((p) => p.y));
+      const maxX = Math.max(...ps.map((p) => p.x));
+      const maxY = Math.max(...ps.map((p) => p.y));
+      expect([minX, minY, maxX, maxY], `${d.name} bounds`).toEqual(d.bounds);
+    }
+  });
+
   it('the Twister design has three inversions', () => {
     const stats = designStats(getDesign('twister')!);
     expect(stats.inversions).toBe(3);
