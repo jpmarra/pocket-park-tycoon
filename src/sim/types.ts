@@ -17,17 +17,28 @@ export const DIRV: ReadonlyArray<{ x: number; y: number }> = [
   { x: 0, y: -1 },
 ];
 
-export type PieceKind = 'station' | 'straight' | 'left' | 'right' | 'up' | 'down';
+// RCT-style track pieces are a COMBINATION of turn, slope, banking and a
+// special element — mirroring the original builder's control groups.
+export type TrackSpecial = 'none' | 'station' | 'loop' | 'corkscrewL' | 'corkscrewR' | 'brakes';
 
-export interface TrackPiece {
+export interface PieceOp {
+  turn: -1 | 0 | 1; // left / straight / right
+  slope: -2 | -1 | 0 | 1 | 2; // steep down / down / level / up / steep up (z delta)
+  bank: -1 | 0 | 1; // banked left / flat / banked right
+  chain: boolean; // chain lift on this piece
+  special: TrackSpecial;
+}
+
+export interface TrackPiece extends PieceOp {
   x: number;
   y: number;
   dirIn: Dir;
   dirOut: Dir;
-  kind: PieceKind;
   zIn: number;
   zOut: number;
 }
+
+export type StallProduct = 'food' | 'drink' | 'balloon' | 'toilet';
 
 export interface RideTypeDef {
   id: string;
@@ -43,7 +54,8 @@ export interface RideTypeDef {
   h: number;
   color: string;
   kind: 'ride' | 'stall' | 'coaster';
-  product?: 'food' | 'drink';
+  category: 'gentle' | 'thrill' | 'coaster' | 'stall';
+  product?: StallProduct;
   defaultPrice: number;
   reliability: number; // 0..1
   height: number; // visual height in z units
@@ -82,6 +94,7 @@ export interface Ride {
   track?: TrackPiece[]; // present for custom coasters
   trainPos?: number; // continuous piece index while running
   trainSpeed?: number;
+  cars: number; // train length for coasters (capacity = cars * 2)
 }
 
 export type GuestState = 'walking' | 'queuing' | 'riding' | 'gone';
@@ -114,6 +127,7 @@ export interface Guest {
   ticksInPark: number;
   idleTicks: number;
   color: string;
+  balloon: string | null; // colour of a carried balloon
 }
 
 export type StaffRole = 'handyman' | 'mechanic';
@@ -200,7 +214,7 @@ export const REPAIR_TICKS = 220;
 export const SWEEP_TICKS = 30;
 export const HANDYMAN_WAGE = 50;
 export const MECHANIC_WAGE = 80;
-export const MAX_TRACK_Z = 8;
+export const MAX_TRACK_Z = 12;
 export const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',

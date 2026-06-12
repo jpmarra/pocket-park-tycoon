@@ -80,7 +80,7 @@ export function tickRide(s: ParkState, ride: Ride): void {
   // running
   ride.stateTicks++;
   if (ride.track) {
-    const r = stepTrain(ride.track, ride.trainPos ?? 0, ride.trainSpeed ?? 0.05);
+    const r = stepTrain(ride.track, ride.trainPos ?? 0, ride.trainSpeed ?? 0.05, ride.typeId);
     ride.trainPos = r.pos;
     ride.trainSpeed = r.speed;
     if (ride.trainPos >= ride.track.length) finishCycle(s, ride);

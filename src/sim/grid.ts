@@ -11,7 +11,7 @@ export function createPark(seed: number): ParkState {
     grid.push({ kind: 'grass', litter: 0, rideId: null });
   }
   const s: ParkState = {
-    version: 1,
+    version: 2,
     seed,
     rng: seed >>> 0 || 1,
     tick: 0,
@@ -116,7 +116,7 @@ export function placeRide(s: ParkState, typeId: string, x: number, y: number): R
     excitement: def.excitement, intensity: def.intensity, nausea: def.nausea,
     duration: def.duration, capacity: def.capacity,
     reliability: def.reliability, runningCost: def.runningCost,
-    age: 0,
+    age: 0, cars: 0,
   };
   s.rides[id] = ride;
   for (let dy = 0; dy < def.h; dy++) {
@@ -129,10 +129,12 @@ export function placeRide(s: ParkState, typeId: string, x: number, y: number): R
 }
 
 export function createCoasterRide(
-  s: ParkState, track: TrackPiece[], cost: number,
+  s: ParkState, typeId: string, track: TrackPiece[], cost: number,
   stats: { excitement: number; intensity: number; nausea: number; lapTicks: number },
+  name?: string, cars = 5,
 ): Ride | null {
-  const def = RIDE_TYPES.coaster;
+  const def = RIDE_TYPES[typeId];
+  if (!def || def.kind !== 'coaster') return null;
   if (s.cash < cost) {
     addMessage(s, `Not enough cash for the coaster ($${cost}).`, 'bad');
     return null;
@@ -144,9 +146,10 @@ export function createCoasterRide(
   const minY = Math.min(...track.map((p) => p.y));
   const maxX = Math.max(...track.map((p) => p.x));
   const maxY = Math.max(...track.map((p) => p.y));
-  const count = Object.values(s.rides).filter((r) => r.typeId === 'coaster').length;
+  const baseName = name ?? def.name;
+  const count = Object.values(s.rides).filter((r) => r.name.startsWith(baseName)).length;
   const ride: Ride = {
-    id, typeId: 'coaster', name: count > 0 ? `Roller Coaster ${count + 1}` : 'Roller Coaster',
+    id, typeId, name: count > 0 ? `${baseName} ${count + 1}` : baseName,
     x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1,
     price: def.defaultPrice, open: true,
     broken: false, breakdowns: 0, repairTicks: 0, mechanicId: null,
@@ -154,10 +157,10 @@ export function createCoasterRide(
     queue: [], onBoard: [],
     totalRiders: 0, revenue: 0,
     excitement: stats.excitement, intensity: stats.intensity, nausea: stats.nausea,
-    duration: stats.lapTicks, capacity: def.capacity,
+    duration: stats.lapTicks, capacity: cars * 2,
     reliability: def.reliability, runningCost: def.runningCost,
     age: 0,
-    track, trainPos: 0, trainSpeed: 0,
+    track, trainPos: 0, trainSpeed: 0, cars,
   };
   s.rides[id] = ride;
   for (const p of track) {

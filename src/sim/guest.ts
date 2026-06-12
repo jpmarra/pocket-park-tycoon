@@ -35,6 +35,7 @@ export function spawnGuest(s: ParkState): Guest | null {
     ticksInPark: 0,
     idleTicks: 0,
     color: SHIRT_COLORS[randInt(s, SHIRT_COLORS.length)],
+    balloon: null,
   };
   // Entry fee goes to the park; guests always pay it on arrival.
   const fee = Math.min(s.entryFee, g.cash);
@@ -102,7 +103,7 @@ function pickRide(s: ParkState, g: Guest): Ride | null {
   return best;
 }
 
-function findStall(s: ParkState, g: Guest, product: 'food' | 'drink'): Ride | null {
+function findStall(s: ParkState, g: Guest, product: 'food' | 'drink' | 'balloon' | 'toilet'): Ride | null {
   for (const r of Object.values(s.rides)) {
     const def = RIDE_TYPES[r.typeId];
     if (def.kind !== 'stall' || def.product !== product) continue;
@@ -110,6 +111,16 @@ function findStall(s: ParkState, g: Guest, product: 'food' | 'drink'): Ride | nu
     if (queueTileFor(s, r)) return r;
   }
   return null;
+}
+
+function goToStall(s: ParkState, g: Guest, stall: Ride): boolean {
+  const qt = queueTileFor(s, stall);
+  if (qt && setPathTo(s, g, qt.x, qt.y)) {
+    g.activity = 'toStall';
+    g.targetRide = stall.id;
+    return true;
+  }
+  return false;
 }
 
 function decide(s: ParkState, g: Guest): void {
@@ -120,29 +131,24 @@ function decide(s: ParkState, g: Guest): void {
   }
   if (g.thirst > 60) {
     const stall = findStall(s, g, 'drink');
-    if (stall) {
-      const qt = queueTileFor(s, stall)!;
-      if (setPathTo(s, g, qt.x, qt.y)) {
-        g.activity = 'toStall';
-        g.targetRide = stall.id;
-        return;
-      }
-    }
+    if (stall && goToStall(s, g, stall)) return;
   }
   if (g.hunger > 60) {
     const stall = findStall(s, g, 'food');
-    if (stall) {
-      const qt = queueTileFor(s, stall)!;
-      if (setPathTo(s, g, qt.x, qt.y)) {
-        g.activity = 'toStall';
-        g.targetRide = stall.id;
-        return;
-      }
+    if (stall && goToStall(s, g, stall)) return;
+  }
+  if (g.nausea > 55) {
+    const loo = findStall(s, g, 'toilet');
+    if (loo && goToStall(s, g, loo)) return;
+    if (g.nausea > 65) {
+      wander(s, g); // walk it off
+      return;
     }
   }
-  if (g.nausea > 65) {
-    wander(s, g); // walk it off
-    return;
+  // Impulse balloon purchase.
+  if (!g.balloon && g.cash > 10 && rand(s) < 0.06) {
+    const stall = findStall(s, g, 'balloon');
+    if (stall && goToStall(s, g, stall)) return;
   }
   const ride = pickRide(s, g);
   if (ride) {
@@ -190,11 +196,32 @@ function arrive(s: ParkState, g: Guest): void {
       s.finances.stallIncome += stall.price;
       stall.revenue += stall.price;
       stall.totalRiders++; // customers served
-      if (def.product === 'food') g.hunger = clamp(g.hunger - 55, 0, 100);
-      else g.thirst = clamp(g.thirst - 55, 0, 100);
-      g.happiness = clamp(g.happiness + 4, 0, 100);
-      g.hasTrash = true;
-      g.trashTimer = 80 + randInt(s, 200);
+      switch (def.product) {
+        case 'food':
+          g.hunger = clamp(g.hunger - 55, 0, 100);
+          g.happiness = clamp(g.happiness + 4, 0, 100);
+          g.hasTrash = true;
+          g.trashTimer = 80 + randInt(s, 200);
+          break;
+        case 'drink':
+          g.thirst = clamp(g.thirst - 55, 0, 100);
+          g.happiness = clamp(g.happiness + 4, 0, 100);
+          g.hasTrash = true;
+          g.trashTimer = 80 + randInt(s, 200);
+          break;
+        case 'balloon': {
+          const colors = ['#e84d6f', '#f2d653', '#4da8e8', '#6fdd6f', '#c77dd8', '#ff9d3c'];
+          g.balloon = colors[randInt(s, colors.length)];
+          g.happiness = clamp(g.happiness + 7, 0, 100);
+          break;
+        }
+        case 'toilet':
+          g.nausea = clamp(g.nausea - 40, 0, 100);
+          g.happiness = clamp(g.happiness + 2, 0, 100);
+          break;
+        default:
+          break;
+      }
     }
     g.targetRide = null;
   }

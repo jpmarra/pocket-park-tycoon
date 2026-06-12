@@ -3,7 +3,7 @@ import type { ParkState } from './types';
 // The entire sim state is plain data, so persistence is a JSON round-trip.
 // localStorage access lives in the UI layer to keep the sim headless.
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function serialize(s: ParkState): string {
   return JSON.stringify(s);

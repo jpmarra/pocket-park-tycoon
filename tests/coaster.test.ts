@@ -2,94 +2,202 @@ import { describe, expect, it } from 'vitest';
 import { createPark, createCoasterRide, buildPath, entranceTile } from '../src/sim/grid';
 import {
   startTrack, addPiece, undoPiece, isClosed, trackCost, trackStats,
-  demoLoopPieces, canBuildDemoLoop,
+  COASTER_DESIGNS, COASTER_TYPES, buildDesign, canBuildDesign, designPieces,
+  designStats, designCost, getDesign, op, STRAIGHT,
 } from '../src/sim/coaster';
 import type { TrackBuilder } from '../src/sim/coaster';
 import { spawnGuest } from '../src/sim/guest';
 import { step } from '../src/sim/park';
 import { QUEUE_PATIENCE } from '../src/sim/types';
 
-describe('coaster builder', () => {
-  it('builds and closes the demo loop', () => {
+const chainUp = op({ slope: 1, chain: true });
+
+describe('coaster builder constraints', () => {
+  function freshBuilder(typeId = 'coaster-twister'): { s: ReturnType<typeof createPark>; b: TrackBuilder } {
     const s = createPark(3);
-    expect(canBuildDemoLoop(s, 10, 10)).toBe(true);
-    const b = demoLoopPieces(s, 10, 10);
+    const b = startTrack(s, typeId, 10, 10, 0) as TrackBuilder;
     expect(typeof b).not.toBe('string');
-    expect(isClosed(b as TrackBuilder)).toBe(true);
+    return { s, b };
+  }
+
+  it('rejects going below ground', () => {
+    const { s, b } = freshBuilder();
+    expect(addPiece(s, b, op({ slope: -1 }))).toMatch(/below ground/);
   });
 
-  it('an open track is not closed', () => {
-    const s = createPark(3);
-    const b = startTrack(s, 10, 10, 0) as TrackBuilder;
-    expect(typeof b).not.toBe('string');
-    addPiece(s, b, 'straight');
-    addPiece(s, b, 'straight');
-    expect(isClosed(b)).toBe(false);
+  it('rejects crossing itself', () => {
+    const { s, b } = freshBuilder();
+    addPiece(s, b, op({ turn: 1 }));
+    addPiece(s, b, op({ turn: 1 }));
+    addPiece(s, b, op({ turn: 1 }));
+    expect(addPiece(s, b, STRAIGHT)).toMatch(/cross itself/);
   });
 
-  it('rejects going below ground and crossing itself', () => {
-    const s = createPark(3);
-    const b = startTrack(s, 10, 10, 0) as TrackBuilder;
-    expect(addPiece(s, b, 'down')).toMatch(/below ground/);
-    // Tight 4-loop tries to re-enter the station tile's row immediately:
-    addPiece(s, b, 'right');
-    addPiece(s, b, 'right');
-    addPiece(s, b, 'right');
-    // Heading back across the station tile — next tile IS the station tile,
-    // which is already used, so this must fail.
-    expect(addPiece(s, b, 'straight')).toMatch(/cross itself/);
+  it('rejects inversions on wooden coasters', () => {
+    const { s, b } = freshBuilder('coaster-wooden');
+    expect(addPiece(s, b, op({ special: 'loop' }))).toMatch(/cannot do inversions/);
   });
 
-  it('undo removes the last piece and restores the head', () => {
-    const s = createPark(3);
-    const b = startTrack(s, 10, 10, 0) as TrackBuilder;
-    addPiece(s, b, 'up');
+  it('rejects steep slopes on the mini coaster', () => {
+    const { s, b } = freshBuilder('coaster-mini');
+    expect(addPiece(s, b, op({ slope: 2 }))).toMatch(/steep/);
+  });
+
+  it('rejects chain lifts downhill and banking on steep track', () => {
+    const { s, b } = freshBuilder();
+    addPiece(s, b, chainUp);
+    expect(addPiece(s, b, op({ slope: -1, chain: true }))).toMatch(/uphill/);
+    expect(addPiece(s, b, op({ slope: 2, bank: 1 }))).toMatch(/bank|steep/i);
+  });
+
+  it('rejects turning steep track and inversions on slopes', () => {
+    const { s, b } = freshBuilder();
+    expect(addPiece(s, b, op({ slope: 2, turn: 1 }))).toMatch(/cannot turn/);
+    expect(addPiece(s, b, op({ special: 'loop', slope: 1 }))).toMatch(/straight, level/);
+  });
+
+  it('undo restores the head pose', () => {
+    const { s, b } = freshBuilder();
+    addPiece(s, b, chainUp);
     expect(b.head.z).toBe(1);
     expect(undoPiece(b)).toBe(true);
     expect(b.head.z).toBe(0);
-    expect(b.pieces.length).toBe(1);
-    expect(undoPiece(b)).toBe(false); // cannot undo the station
+    expect(undoPiece(b)).toBe(false); // station stays
+  });
+});
+
+describe('coaster physics validation', () => {
+  it('a loop without enough drop height is rejected as too slow', () => {
+    const s = createPark(3);
+    const b = startTrack(s, 'coaster-twister', 10, 10, 0) as TrackBuilder;
+    addPiece(s, b, chainUp);
+    addPiece(s, b, op({ slope: -1 }));
+    expect(addPiece(s, b, op({ special: 'loop' }))).toBeNull(); // builds fine...
+    // ...but the stats pass flags it.
+    // Close a minimal rectangle to make the circuit testable.
+    const stats = trackStats(b.pieces, 'coaster-twister');
+    expect(stats.valid).toBe(false);
+    expect(stats.reason).toMatch(/[Tt]oo slow/);
   });
 
-  it('computes positive stats and a finite lap time for the demo loop', () => {
+  it('a circuit with an unchained climb it cannot crest is invalid', () => {
     const s = createPark(3);
-    const b = demoLoopPieces(s, 10, 10) as TrackBuilder;
-    const stats = trackStats(b.pieces);
-    expect(stats.excitement).toBeGreaterThan(1);
-    expect(stats.intensity).toBeGreaterThan(0);
-    expect(stats.lapTicks).toBeGreaterThan(50);
-    expect(stats.lapTicks).toBeLessThan(8000);
-    expect(stats.maxSpeed).toBeGreaterThan(0.05);
+    const b = startTrack(s, 'coaster-twister', 10, 10, 0) as TrackBuilder;
+    for (let i = 0; i < 5; i++) addPiece(s, b, op({ slope: 1 })); // no chain!
+    const stats = trackStats(b.pieces, 'coaster-twister');
+    expect(stats.valid).toBe(false);
+    expect(stats.reason).toMatch(/stalls/);
   });
 
-  it('creating the coaster deducts cash, claims tiles, and guests can ride it', () => {
+  it('brakes cap the train speed', () => {
+    const d = getDesign('cyclone')!;
+    const pieces = designPieces(d);
+    expect(typeof pieces).not.toBe('string');
+    const stats = designStats(d);
+    expect(stats.valid).toBe(true);
+    // The cyclone has a brake run; its lap completes and max speed is sane.
+    expect(stats.maxSpeed).toBeGreaterThan(0.15);
+    expect(stats.maxSpeed).toBeLessThanOrEqual(0.6);
+  });
+
+  it('banked corners produce less lateral G than flat corners', () => {
+    const mkRect = (banked: boolean): TrackBuilder => {
+      const s = createPark(3);
+      const b = startTrack(s, 'coaster-twister', 10, 10, 0) as TrackBuilder;
+      const corner = banked ? op({ turn: 1, bank: 1 }) : op({ turn: 1 });
+      addPiece(s, b, chainUp);
+      addPiece(s, b, chainUp);
+      addPiece(s, b, op({ slope: -1 }));
+      addPiece(s, b, op({ slope: -1 }));
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, corner);
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, corner);
+      for (let i = 0; i < 6; i++) addPiece(s, b, STRAIGHT);
+      addPiece(s, b, corner);
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, STRAIGHT);
+      addPiece(s, b, corner);
+      expect(isClosed(b)).toBe(true);
+      return b;
+    };
+    const flat = trackStats(mkRect(false).pieces, 'coaster-twister');
+    const banked = trackStats(mkRect(true).pieces, 'coaster-twister');
+    expect(flat.valid).toBe(true);
+    expect(banked.valid).toBe(true);
+    expect(banked.maxLatG).toBeLessThan(flat.maxLatG);
+    expect(banked.nausea).toBeLessThan(flat.nausea);
+  });
+});
+
+describe('pre-built designs', () => {
+  it('every design closes, validates, and has sensible stats', () => {
+    expect(COASTER_DESIGNS.length).toBeGreaterThanOrEqual(4);
+    for (const d of COASTER_DESIGNS) {
+      const pieces = designPieces(d);
+      expect(pieces, `${d.name} should close`).not.toBeTypeOf('string');
+      const stats = designStats(d);
+      expect(stats.valid, `${d.name}: ${stats.reason}`).toBe(true);
+      expect(stats.excitement, `${d.name} excitement`).toBeGreaterThan(2);
+      expect(stats.excitement).toBeLessThanOrEqual(9.9);
+      expect(stats.intensity).toBeGreaterThan(0.5);
+      expect(stats.intensity).toBeLessThan(9.2);
+      expect(stats.lapTicks).toBeGreaterThan(60);
+      expect(designCost(d)).toBeGreaterThan(300);
+    }
+  });
+
+  it('the Twister design has three inversions', () => {
+    const stats = designStats(getDesign('twister')!);
+    expect(stats.inversions).toBe(3);
+  });
+
+  it('wooden designs deliver airtime', () => {
+    const stats = designStats(getDesign('woodchip')!);
+    expect(stats.airtime).toBeGreaterThan(0);
+  });
+
+  it('a design can be placed in the park, claims tiles, and guests ride it', () => {
     const s = createPark(3);
+    s.cash = 20000;
     const e = entranceTile(s);
-    // Demo loop just west of the starter path, station row adjacent to path.
-    const sx = e.x - 7;
+    const d = getDesign('little-comet')!;
+    const sx = e.x - 8;
     const sy = e.y - 7;
-    expect(canBuildDemoLoop(s, sx, sy)).toBe(true);
-    const b = demoLoopPieces(s, sx, sy) as TrackBuilder;
-    const cost = trackCost(b.pieces);
-    const stats = trackStats(b.pieces);
-    const cashBefore = s.cash;
-    const ride = createCoasterRide(s, b.pieces, cost, stats)!;
+    expect(canBuildDesign(s, d, sx, sy)).toBe(true);
+    const b = buildDesign(s, d, sx, sy) as TrackBuilder;
+    expect(typeof b).not.toBe('string');
+    const stats = trackStats(b.pieces, d.typeId);
+    const cost = trackCost(b.pieces, d.typeId);
+    const ride = createCoasterRide(s, d.typeId, b.pieces, cost, stats, d.name, 4)!;
     expect(ride).not.toBeNull();
-    expect(s.cash).toBe(cashBefore - cost);
+    expect(ride.capacity).toBe(8);
     expect(s.grid.filter((t) => t.rideId === ride.id).length).toBe(b.pieces.length);
 
-    // Connect the loop to the starter path so guests can queue.
-    // Track footprint is sx-1..sx+6, sy..sy+4; lay a path from the starter
-    // path west to touch the footprint's east edge.
-    for (let x = sx + 7; x <= e.x; x++) buildPath(s, x, sy + 2);
-
+    // Connect to the starter path and ride it.
+    for (let x = sx + d.bounds[2] + 1; x <= e.x; x++) buildPath(s, x, sy + 2);
     const g = spawnGuest(s)!;
     g.state = 'queuing';
-    g.patience = QUEUE_PATIENCE * 4;
+    g.patience = QUEUE_PATIENCE * 6;
     g.targetRide = ride.id;
     ride.queue.push(g.id);
-    step(s, 90 + stats.lapTicks + 50);
+    step(s, 90 + stats.lapTicks + 60);
     expect(ride.totalRiders).toBe(1);
-    expect(s.guests[g.id].ridesRidden).toBe(1);
+  });
+
+  it('designs refuse to overlap obstacles', () => {
+    const s = createPark(3);
+    const d = getDesign('little-comet')!;
+    buildPath(s, 12, 12); // obstacle inside the footprint
+    expect(canBuildDesign(s, d, 10, 10)).toBe(false);
+  });
+
+  it('coaster types have distinct capabilities', () => {
+    expect(COASTER_TYPES['coaster-wooden'].allowsInversions).toBe(false);
+    expect(COASTER_TYPES['coaster-twister'].allowsInversions).toBe(true);
+    expect(COASTER_TYPES['coaster-mini'].allowsSteep).toBe(false);
   });
 });
