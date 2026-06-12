@@ -21,9 +21,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
-      - run: npm ci
+      # npm occasionally dies with "Exit handler never called!" on CI runners
+      # (a bug in npm itself) — retry once with a clean modules dir.
+      - run: npm ci || (rm -rf node_modules && npm ci)
       - run: npm run build
       - run: npm test
       - name: Playwright smoke test against production build
