@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pocket Park Tycoon</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="canvas"></canvas>
+    <header id="topbar">
+      <div class="stat" id="stat-cash" title="Cash">$0</div>
+      <div class="stat" id="stat-guests" title="Guests in park">👥 0</div>
+      <div class="stat" id="stat-rating" title="Park rating">★ 0</div>
+      <div class="stat" id="stat-date">March, Year 1</div>
+      <div id="speed-controls">
+        <button id="speed-pause" title="Pause">⏸</button>
+        <button id="speed-1" class="active" title="Normal speed">▶</button>
+        <button id="speed-4" title="Fast forward">⏩</button>
+      </div>
+      <div id="file-controls">
+        <button id="btn-save" title="Save park">💾 Save</button>
+        <button id="btn-load" title="Load park">📂 Load</button>
+        <button id="btn-new" title="New park">🆕 New</button>
+      </div>
+    </header>
+    <div id="ticker"></div>
+    <nav id="toolbar"></nav>
+    <aside id="sidepanel" class="hidden"></aside>
+    <div id="overlay" class="hidden"></div>
+  </div>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
