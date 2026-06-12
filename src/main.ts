@@ -123,9 +123,12 @@ document.getElementById('btn-new')!.addEventListener('click', () => {
   if (window.confirm('Start a new park? Unsaved progress will be lost.')) g.newGame();
 });
 
-// Fixed-timestep simulation, decoupled from rendering.
+// Fixed-timestep simulation, decoupled from rendering. The HUD updates here
+// too (not just in the rAF loop) so it stays live even when the browser
+// throttles animation frames for hidden/occluded pages.
 window.setInterval(() => {
   for (let i = 0; i < g.speed; i++) tick(g.s);
+  updateHUD(g);
   if (g.s.gameOver !== 'none' && !g.s.sandbox && !shownGameOver) {
     shownGameOver = true;
     showGameOverOverlay(g);

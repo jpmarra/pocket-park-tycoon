@@ -359,6 +359,7 @@ export function setTicker(text: string, kind: 'info' | 'bad' | 'good' = 'info'):
 
 let lastMsgCount = -1;
 let lastHud = '';
+let lastPanelRefresh = 0;
 
 export function updateHUD(g: GameCtx): void {
   const s = g.s;
@@ -377,8 +378,12 @@ export function updateHUD(g: GameCtx): void {
     const m = s.messages[s.messages.length - 1];
     if (m) setTicker(m.text, m.kind);
   }
-  // Live-refresh dynamic panels now and then.
-  if (s.tick % 20 === 0 && (g.panel === 'ride' || g.panel === 'goal' || g.panel === 'finance' || g.panel === 'staff')) {
+  // Live-refresh dynamic panels about once a second (time-based, because
+  // tick-modulo checks can be skipped entirely at fast speed).
+  const now = performance.now();
+  if (now - lastPanelRefresh > 1000
+    && (g.panel === 'ride' || g.panel === 'goal' || g.panel === 'finance' || g.panel === 'staff')) {
+    lastPanelRefresh = now;
     refreshPanel(g);
   }
 }

@@ -19,18 +19,29 @@ function updateRating(s: ParkState): void {
   for (const t of s.grid) litter += t.litter;
   const rides = Object.values(s.rides).filter((r) => RIDE_TYPES[r.typeId].kind !== 'stall');
   const broken = rides.filter((r) => r.broken).length;
-  const rideBonus = Math.min(rides.length * 45, 220);
-  s.rating = Math.round(clamp(avgHappiness * 7 + rideBonus - litter * 4 - broken * 60, 0, 999));
+  // A high rating needs both happy guests AND a well-built park: variety of
+  // rides and total excitement on offer. One carousel cannot carry a park.
+  const rideBonus = Math.min(rides.length * 35, 250);
+  const excitementBonus = Math.min(rides.reduce((sum, r) => sum + r.excitement, 0) * 5, 80);
+  s.rating = Math.round(clamp(
+    avgHappiness * 5.5 + rideBonus + excitementBonus - litter * 4 - broken * 60,
+    0, 999,
+  ));
 }
 
 function maybeSpawnGuest(s: ParkState): void {
   const openRides = Object.values(s.rides)
     .filter((r) => RIDE_TYPES[r.typeId].kind !== 'stall' && r.open && !r.broken).length;
   if (openRides === 0) return; // nobody visits a park with nothing to ride
-  const base = 0.006 + openRides * 0.005;
+  // Soft capacity: guests stop showing up when the park is crowded relative
+  // to what there is to do. More rides = more visitors.
+  const capacity = 10 + openRides * 12;
+  if (s.guestCount >= capacity * 1.5) return;
+  const crowding = s.guestCount >= capacity ? 0.1 : 1;
+  const base = 0.004 + openRides * 0.004;
   const feeFactor = clamp(1.4 - s.entryFee / 25, 0.1, 1.3);
   const ratingFactor = 0.4 + s.rating / 900;
-  if (rand(s) < base * feeFactor * ratingFactor) {
+  if (rand(s) < base * feeFactor * ratingFactor * crowding) {
     spawnGuest(s);
   }
 }
