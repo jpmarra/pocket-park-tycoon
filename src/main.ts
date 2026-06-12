@@ -1,5 +1,8 @@
 import './style.css';
-import { createPark } from './sim/grid';
+import { buildPath, createPark, placeRide } from './sim/grid';
+import { hireStaff } from './sim/staff';
+import { demoLoopPieces } from './sim/coaster';
+import type { StaffRole } from './sim/types';
 import { tick, step } from './sim/park';
 import { serialize, deserialize } from './sim/save';
 import { render, tileToWorld } from './render/renderer';
@@ -161,6 +164,12 @@ declare global {
       step: (n: number) => void;
       tileToScreen: (x: number, y: number) => { x: number; y: number };
       refreshPanel: () => void;
+      api: {
+        buildPath: (x: number, y: number) => boolean;
+        placeRide: (typeId: string, x: number, y: number) => boolean;
+        buildDemoLoop: (x: number, y: number) => boolean;
+        hireStaff: (role: StaffRole) => boolean;
+      };
     };
   }
 }
@@ -173,4 +182,14 @@ window.game = {
     return { x: w.x * g.cam.zoom + g.cam.x, y: w.y * g.cam.zoom + g.cam.y };
   },
   refreshPanel: () => refreshPanel(g),
+  api: {
+    buildPath: (x, y) => buildPath(g.s, x, y),
+    placeRide: (typeId, x, y) => placeRide(g.s, typeId, x, y) !== null,
+    buildDemoLoop: (x, y) => {
+      const b = demoLoopPieces(g.s, x, y);
+      if (typeof b === 'string') return false;
+      return createCoasterRide(g.s, b.pieces, trackCost(b.pieces), trackStats(b.pieces)) !== null;
+    },
+    hireStaff: (role) => hireStaff(g.s, role) !== null,
+  },
 };

@@ -96,3 +96,5 @@ gh repo create pocket-park-tycoon --public --source . --push
 ```
 
 The game will be live at `https://<user>.github.io/pocket-park-tycoon/`.
+
+![Coaster close-up](docs/closeup-coaster.png)
